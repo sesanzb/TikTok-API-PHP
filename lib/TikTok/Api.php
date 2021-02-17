@@ -227,7 +227,6 @@ if (!\class_exists('\Sovit\TikTok\Api')) {
                     "maxCursor"  => ++$maxCursor,
                 ];
             }
-
             return false;
         }
 
@@ -250,7 +249,6 @@ if (!\class_exists('\Sovit\TikTok\Api')) {
                     }
                 }
             }
-            
             return false;
         }
 
