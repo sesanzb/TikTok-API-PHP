@@ -23,7 +23,7 @@ if (!\class_exists('\Sovit\TikTok\Api')) {
             "nwm_endpoint"   => false,
             "api_key"   => false
         ];
-        public function __construct($config = array(), $cacheEngine = false)
+        public function __construct(array $config = [], ICacheEngine $cacheEngine = null)
         {
             $this->_config = array_merge(['cookie_file' => sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'tiktok.txt'], $this->defaults, $config);
             if ($cacheEngine) {
@@ -146,7 +146,7 @@ if (!\class_exists('\Sovit\TikTok\Api')) {
             $data = $this->getVideoByUrl($url);
             if ($data) {
                 $video = $data->items[0];
-
+                
                 if ($video->createTime < 1595894400) {
                     // only attempt to get video ID before 28th July 2020 using video id in video file meta comment
                     $ch = curl_init();
@@ -237,14 +237,20 @@ if (!\class_exists('\Sovit\TikTok\Api')) {
                 throw new \Exception("Invalid Username");
             }
             $username = urlencode($username);
-            $result = $this->remote_call("https://www.tiktok.com/@{$username}", 'user-' . $username, false);
-            if (preg_match('/<script id="__NEXT_DATA__"([^>]+)>([^<]+)<\/script>/', $result, $matches)) {
-                $result = json_decode($matches[2], false);
-                if (isset($result->props->pageProps->userInfo)) {
-                    return $result->props->pageProps->userInfo;
+
+            $result = $this->remote_call(self::API_BASE . "share/user/@{$username}", 'user-' . $username . '-json');
+            if (isset($result->userInfo->user)) {
+                return $result->userInfo;
+            } else {
+                $result = $this->remote_call("https://www.tiktok.com/@{$username}", 'user-' . $username, false);
+                if (preg_match('/<script id="__NEXT_DATA__"([^>]+)>([^<]+)<\/script>/', $result, $matches)) {
+                    $result = json_decode($matches[2], false);
+                    if (isset($result->props->pageProps->userInfo)) {
+                        return $result->props->pageProps->userInfo;
+                    }
                 }
             }
-
+            
             return false;
         }
 
@@ -255,31 +261,43 @@ if (!\class_exists('\Sovit\TikTok\Api')) {
             }
             $user = $this->getUser($username);
             if ($user) {
-                $param = [
-                    "type"      => 1,
-                    "secUid"    => "",
-                    "id"        => $user->user->id,
-                    "count"     => 30,
-                    "minCursor" => "0",
-                    "maxCursor" => $maxCursor,
-                    "shareUid"  => "",
-                    "lang"      => "",
-                    "verifyFp"  => "",
-                ];
-                $result = $this->remote_call(self::API_BASE . "video/feed?" . http_build_query($param), 'user-feed-' . $username . '-' . $maxCursor);
-                if (isset($result->body->itemListData)) {
-                    return (object) [
-                        "statusCode" => 0,
-                        "info"       => (object) [
-                            'type'   => 'user',
-                            'detail' => $user,
-                        ],
-                        "items"      => Helper::parseData($result->body->itemListData),
-                        "hasMore"    => @$result->body->hasMore,
-                        "minCursor"  => @$result->body->minCursor,
-                        "maxCursor"  => @$result->body->maxCursor,
-                    ];
+                if ($feed = $this->getUserFeedByUserId($user->user->id, $maxCursor)) {
+                    $feed->info->detail = $user;
+                    return $feed;
                 }
+            }
+            return false;
+        }
+
+        public function getUserFeedByUserId(int $userID, int $maxCursor = 0, int $minCursor = 0, int $items = 30)
+        {
+            $param = [
+                'type'      => 1,
+                'secUid'    => '',
+                'id'        => $userID,
+                'count'     => $items,
+                'minCursor' => $minCursor,
+                'maxCursor' => $maxCursor,
+                'shareUid'  => '',
+                'lang'      => '',
+                'verifyFp'  => '',
+            ];
+            $result = $this->remote_call(
+                self::API_BASE . 'video/feed?' . http_build_query($param),
+                'user-feed-' . $userID . '-' . $items. '-' . $maxCursor. '-' . $minCursor
+            );
+            if (isset($result->body->itemListData)) {
+                return (object) [
+                    'statusCode' => $result->statusCode,
+                    'info'       => (object) [
+                        'type'   => 'user',
+                        'detail' => false,
+                    ],
+                    'items'      => Helper::parseData($result->body->itemListData),
+                    'hasMore'    => @$result->body->hasMore,
+                    'minCursor'  => @$result->body->minCursor,
+                    'maxCursor'  => @$result->body->maxCursor,
+                ];
             }
             return false;
         }
